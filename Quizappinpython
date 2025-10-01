@@ -1,68 +1,164 @@
 import json
 import os
+import random
+from typing import List, Dict, Union
 
-FILE_NAME = "quiz_questions.json"
+QUESTIONS_FILE = "quiz_questions.json"
+SCORES_FILE = "scores.json"
 
-# Load questions
-def load_questions():
-    if os.path.exists(FILE_NAME):
-        with open(FILE_NAME, "r") as f:
-            return json.load(f)
-    return []
 
-# Save questions
-def save_questions(questions):
-    with open(FILE_NAME, "w") as f:
-        json.dump(questions, f, indent=4)
-
-# Play quiz
-def play_quiz(questions):
-    if not questions:
-        print("No questions available. Please add questions first.\n")
-        return
-    score = 0
-    for q in questions:
-        print("\n" + q["question"])
-        for i, option in enumerate(q["options"], start=1):
-            print(f"{i}. {option}")
+# ----------------- File Handling -----------------
+def load_data(filename: str, default: Union[dict, list] = None) -> Union[dict, list]:
+    """Load JSON data from a file, return default if file missing or corrupted."""
+    if os.path.exists(filename):
         try:
-            ans = int(input("Your answer (number): "))
-            if 1 <= ans <= len(q["options"]) and q["options"][ans-1].lower() == q["answer"].lower():
-                print("Correct!")
-                score += 1
+            with open(filename, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            print(f"⚠️ Error: {filename} is corrupted. Starting fresh.")
+            return default if default is not None else []
+    return default if default is not None else []
+
+
+def save_data(filename: str, data: Union[dict, list]) -> None:
+    """Save JSON data to a file."""
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+
+# ----------------- Quiz Functions -----------------
+def play_quiz(questions: List[Dict[str, Union[str, List[str]]]]) -> None:
+    """Play the quiz with shuffled questions and options."""
+    if not questions:
+        print("\n⚠️ No questions available. Please add questions first.\n")
+        return
+
+    random.shuffle(questions)
+    score = 0
+    print("\n=== Starting Quiz ===")
+
+    for idx, q in enumerate(questions, start=1):
+        print(f"\nQ{idx}: {q['question']}")
+
+        options = q["options"][:]
+        random.shuffle(options)
+
+        for i, option in enumerate(options, start=1):
+            print(f"  {i}. {option}")
+
+        try:
+            ans = int(input("Your answer (number): ").strip())
+            if 1 <= ans <= len(options):
+                if options[ans - 1].strip().lower() == q["answer"].strip().lower():
+                    print("✅ Correct!")
+                    score += 1
+                else:
+                    print(f"❌ Wrong! Correct answer: {q['answer']}")
             else:
-                print(f"Wrong! Correct answer: {q['answer']}")
+                print(f"⚠️ Invalid choice! Correct answer: {q['answer']}")
         except ValueError:
-            print(f"Invalid input! Correct answer: {q['answer']}")
-    print(f"\nQuiz finished! Your score: {score}/{len(questions)}\n")
+            print(f"⚠️ Invalid input! Correct answer: {q['answer']}")
 
-# Add question
-def add_question(questions):
+    print(f"\n🎯 Quiz finished! Your score: {score}/{len(questions)}\n")
+    save_high_score(score)
+
+
+def add_question(questions: List[Dict[str, Union[str, List[str]]]]) -> None:
+    """Add a new question with 4 options and a valid answer."""
+    print("\n=== Add a New Question ===")
     question = input("Enter question: ").strip()
-    options = [input(f"Option {i+1}: ").strip() for i in range(4)]
-    answer = input("Enter correct answer (exact text from options): ").strip()
-    questions.append({"question": question, "options": options, "answer": answer})
-    save_questions(questions)
-    print("Question added!\n")
 
-# Main menu
-def main():
-    questions = load_questions()
-    while True:
-        print("=== QUIZ APP ===")
-        print("1. Play Quiz")
-        print("2. Add Question")
-        print("3. Exit")
-        choice = input("Choose option: ")
-        if choice == "1":
-            play_quiz(questions)
-        elif choice == "2":
-            add_question(questions)
-        elif choice == "3":
-            print("Goodbye!")
-            break
+    options = []
+    while len(options) < 4:
+        opt = input(f"Option {len(options) + 1}: ").strip()
+        if opt:
+            options.append(opt)
         else:
-            print("Invalid option.\n")
+            print("⚠️ Option cannot be empty!")
+
+    answer = input("Enter correct answer (must match one of the options): ").strip()
+    if answer not in options:
+        print("⚠️ Error: Answer must be one of the options!")
+        return
+
+    questions.append({"question": question, "options": options, "answer": answer})
+    save_data(QUESTIONS_FILE, questions)
+    print("✅ Question added successfully!\n")
+
+
+def view_questions(questions: List[Dict[str, Union[str, List[str]]]]) -> None:
+    """Display all stored questions and answers."""
+    if not questions:
+        print("\n⚠️ No questions found.\n")
+        return
+
+    print("\n=== All Questions ===")
+    for idx, q in enumerate(questions, start=1):
+        print(f"\n{idx}. {q['question']}")
+        for i, opt in enumerate(q["options"], start=1):
+            print(f"   {i}. {opt}")
+        print(f"   ✅ Answer: {q['answer']}")
+
+
+def delete_question(questions: List[Dict[str, Union[str, List[str]]]]) -> None:
+    """Delete a question by its index."""
+    if not questions:
+        print("\n⚠️ No questions to delete.\n")
+        return
+
+    view_questions(questions)
+    try:
+        idx = int(input("\nEnter question number to delete: ").strip())
+        if 1 <= idx <= len(questions):
+            removed = questions.pop(idx - 1)
+            save_data(QUESTIONS_FILE, questions)
+            print(f"🗑️ Deleted question: {removed['question']}\n")
+        else:
+            print("⚠️ Invalid question number.")
+    except ValueError:
+        print("⚠️ Invalid input.")
+
+
+# ----------------- Score Handling -----------------
+def save_high_score(score: int) -> None:
+    """Update and display high score."""
+    scores = load_data(SCORES_FILE, default={"high_score": 0})
+    if score > scores.get("high_score", 0):
+        scores["high_score"] = score
+        save_data(SCORES_FILE, scores)
+        print(f"🏆 New High Score: {score}!\n")
+    else:
+        print(f"⭐ Current High Score: {scores['high_score']}\n")
+
+
+# ----------------- Main Menu -----------------
+def main() -> None:
+    """Display main menu and handle user choices."""
+    questions = load_data(QUESTIONS_FILE, default=[])
+
+    menu = {
+        "1": lambda: play_quiz(questions),
+        "2": lambda: add_question(questions),
+        "3": lambda: view_questions(questions),
+        "4": lambda: delete_question(questions),
+        "5": lambda: print("👋 Goodbye!") or exit(0),
+    }
+
+    try:
+        while True:
+            print("\n=== QUIZ APP ===")
+            print("1. Play Quiz")
+            print("2. Add Question")
+            print("3. View Questions")
+            print("4. Delete Question")
+            print("5. Exit")
+
+            choice = input("Choose option: ").strip()
+            menu.get(choice, lambda: print("⚠️ Invalid option.\n"))()
+    except KeyboardInterrupt:
+        print("\n👋 Exiting gracefully...")
+        exit(0)
+
 
 if __name__ == "__main__":
     main()
